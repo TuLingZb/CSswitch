@@ -4,6 +4,19 @@
 
 > **约定**：已修问题从 [`docs/known-issues.md`](docs/known-issues.md)「毕业」到这里（发布即定稿）；未修/进行中留在 known-issues；硬 bug 的根因证据链存在 [`findings/`](findings/)。
 
+## [0.4.0] — 2026-07-03
+
+> 主题：Windows 11 兼容与智谱 GLM 默认支持。保留既有 macOS / Linux 支持与 v0.3.0 macOS 资产，不覆盖旧 release。
+
+### 新增 Added
+- **新增内置 provider：智谱 GLM**。默认走 Anthropic 兼容透传端点 `https://open.bigmodel.cn/api/anthropic/v1/messages`，环境变量为 `GLM_API_KEY`，默认模型 `glm-4.7`。
+- 面板 provider 下拉、key 标签、配置回显、状态灯与 doctor 诊断同步支持 GLM。
+
+### Windows 11
+- 后端配置、日志、安全写入、随机 secret、可执行文件查找改为跨平台实现，Windows 下不再依赖 Unix-only API。
+- Windows 11 下支持配置面板、代理启动、provider key 保存/验证、浏览器/日志打开；Claude Science 沙箱启动会明确提示仍需可用的 Science 运行时，不再误调 bash/macOS 脚本。
+- Python 查找兼容 `python3` / `python` / `py`。
+
 ## [0.3.0] — 2026-07-03
 
 > 主题：扩展第三方模型与 Linux 兼容。Provider 从固定 DeepSeek/Qwen 扩为内置多厂商 + 自定义 API，桌面端与脚本去掉一批 macOS 专属假设。

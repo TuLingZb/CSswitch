@@ -69,6 +69,9 @@ class MaxTokensPerModel(unittest.TestCase):
 
 class ProviderRegistry(unittest.TestCase):
     def test_new_builtin_providers_exist(self):
+        self.assertEqual(cs.PROVIDERS["glm"]["mode"], "anthropic")
+        self.assertIn("open.bigmodel.cn", cs.PROVIDERS["glm"]["url"])
+        self.assertEqual(cs.PROVIDERS["glm"]["default_model"], "glm-4.7")
         self.assertEqual(cs.PROVIDERS["mimo"]["mode"], "anthropic")
         self.assertIn("xiaomimimo.com", cs.PROVIDERS["mimo"]["url"])
         self.assertEqual(cs.PROVIDERS["minimax"]["mode"], "anthropic")

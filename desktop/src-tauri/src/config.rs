@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -95,6 +96,7 @@ impl Config {
 /// 生产环境配置目录：`$HOME/.csswitch`。
 pub fn default_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
     home.join(".csswitch")
@@ -130,7 +132,27 @@ fn ensure_dir(dir: &Path) -> io::Result<()> {
             format!("配置目录不是目录：{}", dir.display()),
         ));
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    set_private_dir_permissions(dir)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_dir_permissions(path: &Path) -> io::Result<()> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn set_private_dir_permissions(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> io::Result<()> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
@@ -148,7 +170,7 @@ pub fn load_from(dir: &Path) -> io::Result<Config> {
         Err(e) => return Err(e),
     };
     // 存在即复位权限，抵御外部把它改宽。
-    let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    let _ = set_private_file_permissions(&path);
     let cfg: Config = serde_json::from_slice(&data).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -179,11 +201,11 @@ pub fn save_to(dir: &Path, cfg: &Config) -> io::Result<()> {
     ));
     // O_CREAT|O_EXCL + 0600：拒绝复用已有临时文件，创建即定权限。
     let write_res = (|| -> io::Result<()> {
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
+        let mut opts = fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        opts.mode(0o600);
+        let mut f = opts.open(&tmp)?;
         f.write_all(&json)?;
         f.sync_all()?;
         Ok(())
@@ -197,7 +219,7 @@ pub fn save_to(dir: &Path, cfg: &Config) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    set_private_file_permissions(&path)?;
     Ok(())
 }
 
@@ -229,6 +251,7 @@ pub fn mask(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     fn tmpdir() -> PathBuf {
@@ -240,6 +263,7 @@ mod tests {
         d
     }
 
+    #[cfg(unix)]
     fn mode_of(p: &Path) -> u32 {
         fs::metadata(p).unwrap().permissions().mode() & 0o777
     }
@@ -274,6 +298,7 @@ mod tests {
         assert_eq!(got.key_for("deepseek").as_deref(), Some("sk-abcdef1234"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn save_sets_dir_0700_and_file_0600() {
         let d = tmpdir().join(".csswitch");
@@ -282,6 +307,7 @@ mod tests {
         assert_eq!(mode_of(&config_path(&d)), 0o600, "file must be 0600");
     }
 
+    #[cfg(unix)]
     #[test]
     fn load_resets_widened_perms_to_0600() {
         let d = tmpdir().join(".csswitch");
@@ -292,6 +318,7 @@ mod tests {
         assert_eq!(mode_of(&p), 0o600, "load must reset perms to 0600");
     }
 
+    #[cfg(unix)]
     #[test]
     fn save_rejects_symlinked_file_and_leaves_target_untouched() {
         let base = tmpdir();
@@ -307,6 +334,7 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"ORIGINAL");
     }
 
+    #[cfg(unix)]
     #[test]
     fn load_rejects_symlinked_file() {
         let base = tmpdir();
@@ -319,6 +347,7 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
+    #[cfg(unix)]
     #[test]
     fn load_rejects_symlinked_dir() {
         // ~/.csswitch 本身被换成软链时，load 也必须拒绝（不跟随读到别处）——修 P1-3。
@@ -332,6 +361,7 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
+    #[cfg(unix)]
     #[test]
     fn ensure_dir_rejects_symlinked_dir() {
         let base = tmpdir();

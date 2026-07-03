@@ -6,6 +6,7 @@ Providers:
                    代理只做「透传 + 改模型名 + 换鉴权头 + max_tokens 夹取 + 连接重试」，
                    thinking/tool_use 全部原生保真（不翻译协议）。
   qwen           ：DashScope compatible-mode —— Anthropic↔OpenAI 双向翻译（流式以 SSE 回放保真 tool_use）。
+  glm            ：智谱 GLM Anthropic 兼容端点 —— 原生透传。
 
 安全约束：
   - 入站 Authorization / x-api-key（Science 带来的 OAuth Bearer）一律剥离，不记录、不转发。
@@ -15,6 +16,7 @@ Providers:
 用法：
   DEEPSEEK_API_KEY=... python3 csswitch_proxy.py --provider deepseek --port 18991
   DASHSCOPE_API_KEY=... python3 csswitch_proxy.py --provider qwen --port 18991
+  GLM_API_KEY=... python3 csswitch_proxy.py --provider glm --port 18991
 """
 import argparse
 import json
@@ -86,6 +88,26 @@ PROVIDERS = {
         },
         "default_cap": 8192,
         "default_model": "qwen-plus",
+    },
+    "glm": {
+        "mode": "anthropic",
+        "url": "https://open.bigmodel.cn/api/anthropic/v1/messages",
+        "key_env": "GLM_API_KEY",
+        "models": [
+            ("claude-opus-4-8", "GLM-4.7"),
+            ("claude-haiku-4-5", "GLM-4.7 Fast"),
+        ],
+        "model_map": {
+            "claude-opus-4-8": "glm-4.7",
+            "claude-sonnet-5": "glm-4.7",
+            "claude-sonnet-4-6": "glm-4.7",
+            "claude-haiku-4-5": "glm-4.7",
+        },
+        "model_caps": {
+            "glm-4.7": 8192,
+        },
+        "default_cap": 8192,
+        "default_model": "glm-4.7",
     },
     "mimo": {
         "mode": "anthropic",

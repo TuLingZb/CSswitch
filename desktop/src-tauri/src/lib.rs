@@ -49,6 +49,7 @@ fn key_fingerprint(s: &str) -> u64 {
 fn key_env(provider: &str) -> &'static str {
     match provider {
         "qwen" => "DASHSCOPE_API_KEY",
+        "glm" => "GLM_API_KEY",
         "mimo" => "MIMO_API_KEY",
         "minimax" => "MINIMAX_API_KEY",
         "custom" => "CUSTOM_API_KEY",
@@ -59,6 +60,7 @@ fn key_env(provider: &str) -> &'static str {
 fn default_upstream_host(provider: &str) -> &'static str {
     match provider {
         "qwen" => "dashscope.aliyuncs.com",
+        "glm" => "open.bigmodel.cn",
         "mimo" => "api.xiaomimimo.com",
         "minimax" => "api.minimax.io",
         _ => "api.deepseek.com",
@@ -148,6 +150,7 @@ fn log_path(name: &str) -> PathBuf {
 }
 
 /// `O_NOFOLLOW` 的平台常量（本项目不引 libc）。macOS/BSD=0x0100，Linux=0x20000。
+#[cfg(unix)]
 const fn libc_o_nofollow() -> i32 {
     if cfg!(target_os = "linux") {
         0x2_0000
@@ -158,26 +161,43 @@ const fn libc_o_nofollow() -> i32 {
 
 /// 打开（truncate）一个子进程日志文件，父目录 0700、文件 0600（防同机其它用户读到 secret 尾巴）。
 fn open_log(name: &str) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let p = log_path(name);
-    if let Some(parent) = p.parent() {
-        config::assert_not_symlink(parent)?;
-        std::fs::create_dir_all(parent)?;
-        let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let p = log_path(name);
+        if let Some(parent) = p.parent() {
+            config::assert_not_symlink(parent)?;
+            std::fs::create_dir_all(parent)?;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+        // 日志路径不许是符号链接：否则 truncate+写会覆盖链接目标文件（修 P2-1）。
+        config::assert_not_symlink(&p)?;
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            // O_NOFOLLOW：即便在 lstat 与 open 之间被换成软链，也拒绝跟随。
+            .custom_flags(libc_o_nofollow())
+            .open(&p)?;
+        // 文件已存在时 mode() 不复位，显式再夹一次。
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+        Ok(f)
     }
-    // 日志路径不许是符号链接：否则 truncate+写会覆盖链接目标文件（修 P2-1）。
-    config::assert_not_symlink(&p)?;
-    let f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        // O_NOFOLLOW：即便在 lstat 与 open 之间被换成软链，也拒绝跟随。
-        .custom_flags(libc_o_nofollow())
-        .open(&p)?;
-    // 文件已存在时 mode() 不复位，显式再夹一次。
-    let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
-    Ok(f)
+    #[cfg(not(unix))]
+    {
+        let p = log_path(name);
+        if let Some(parent) = p.parent() {
+            config::assert_not_symlink(parent)?;
+            std::fs::create_dir_all(parent)?;
+        }
+        config::assert_not_symlink(&p)?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&p)
+    }
 }
 
 /// 把字符串里的 secret 明文替换成 ****，用于任何要回显给前端的错误尾巴。
@@ -255,6 +275,7 @@ fn open_path(path: &Path) -> Result<(), String> {
 // ---------- 代理生命周期核心 ----------
 /// 转义 ERE（extended regex）元字符，让路径按字面参与 `pkill -f` 匹配（避免路径里的
 /// `.`/`(`/`[` 等被当作正则、误配或失配）。
+#[cfg(not(windows))]
 fn ere_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
@@ -304,7 +325,9 @@ fn ensure_proxy(
     let root = asset_root(app)
         .ok_or("找不到代理脚本 proxy/csswitch_proxy.py（打包资源或仓库根均未命中）。开发态可设 CSSWITCH_REPO。")?;
     let py = proc::find_exe("python3")
-        .ok_or("缺少依赖 python3（起翻译代理需要）。已查 PATH、常见目录与登录 shell 仍未找到；macOS 一般自带 /usr/bin/python3（装 Xcode 命令行工具：xcode-select --install）。")?;
+        .or_else(|| proc::find_exe("python"))
+        .or_else(|| proc::find_exe("py"))
+        .ok_or("缺少依赖 Python（起翻译代理需要）。已查 PATH、常见目录与登录 shell 仍未找到；macOS 一般自带 /usr/bin/python3，Windows 11 可安装 Python 并勾选 Add python.exe to PATH。")?;
 
     // path-secret：**持久化复用**。已在跑的沙箱把该 secret 嵌进了 ANTHROPIC_BASE_URL，
     // 若每次起代理都换 secret，代理一重启（换 key/换 provider/重开 app）沙箱就会拿旧 secret
@@ -340,8 +363,11 @@ fn ensure_proxy(
         // 孤儿仍占着端口 → 新代理绑不上（Errno 48）→ 探活超时。
         // 收紧（P2 GPT 复审）：匹配【本安装的绝对脚本路径】+ 端口，而非仅「脚本名+端口」，
         // 避免误杀另一个 checkout / 用户手启的同名代理。路径里的正则元字符转义按字面匹配。
-        let pat = format!("{}.*--port {port}", ere_escape(&script.to_string_lossy()));
-        let _ = Command::new("pkill").arg("-f").arg(&pat).status();
+        #[cfg(not(windows))]
+        {
+            let pat = format!("{}.*--port {port}", ere_escape(&script.to_string_lossy()));
+            let _ = Command::new("pkill").arg("-f").arg(&pat).status();
+        }
 
         let logf = open_log("proxy.log").map_err(|e| format!("建日志失败：{e}"))?;
         let logf2 = logf.try_clone().map_err(|e| e.to_string())?;
@@ -408,6 +434,11 @@ fn ensure_proxy(
 /// 停沙箱。返回 Err 表示 stop 脚本非零退出（Science 可能没停干净），
 /// 调用方据此如实报告，不再无条件报「已停止」（修 P1 停止虚假成功）。
 fn stop_sandbox_inner(app: &tauri::AppHandle, st: &mut AppState) -> Result<(), String> {
+    if cfg!(target_os = "windows") {
+        kill_child(&mut st.sandbox);
+        st.sandbox_url = None;
+        return Ok(());
+    }
     // 沙箱由脚本以 --detached 起 Science，本进程持有的是脚本 child（已退出）。
     // 真正停 Science 要调 stop 脚本（按 data-dir，绝不碰真实 8765）。
     // 修 P1（GPT 复审）：定位不到资源根 / 停止脚本时，绝不静默返回成功——detached 沙箱
@@ -457,7 +488,7 @@ fn get_config() -> Result<serde_json::Value, String> {
     let dir = config::default_dir();
     let cfg = config::load_from(&dir).map_err(|e| e.to_string())?;
     let mut keys = serde_json::Map::new();
-    for p in ["deepseek", "qwen", "mimo", "minimax", "custom"] {
+    for p in ["deepseek", "qwen", "glm", "mimo", "minimax", "custom"] {
         let masked = cfg.key_for(p).map(|k| config::mask(&k)).unwrap_or_default();
         keys.insert(p.to_string(), serde_json::Value::String(masked));
     }
@@ -577,7 +608,7 @@ fn set_config(cfg: UiSettings) -> Result<(), String> {
         return Err("端口 8765 是真实 Science 实例保留端口，不能用。".into());
     }
     // 只认已实现的 provider，避免存进未知值后起代理时才失败（修 P2-3）。
-    if !["deepseek", "qwen", "mimo", "minimax", "custom"].contains(&cfg.provider.as_str()) {
+    if !["deepseek", "qwen", "glm", "mimo", "minimax", "custom"].contains(&cfg.provider.as_str()) {
         return Err(format!("未知 provider：{}。", cfg.provider));
     }
     let custom_url = cfg.custom_api_url.unwrap_or_default().trim().to_string();
@@ -691,6 +722,17 @@ fn one_click_login(
 ) -> Result<serde_json::Value, String> {
     // 1~3. 确保代理在跑且健康（内部已查 key、探活）。带回本次是复用还是重启。
     let (pport, secret, proxy_action) = ensure_proxy(&app, &state)?;
+    if cfg!(target_os = "windows") {
+        let msg = match proxy_action {
+            ProxyAction::Reused => "Windows 11：代理已在运行。Claude Science 沙箱当前仅支持 macOS/Linux，请在支持的 Science 运行时里使用该代理地址。",
+            ProxyAction::Restarted => "Windows 11：代理已启动。Claude Science 沙箱当前仅支持 macOS/Linux，请在支持的 Science 运行时里使用该代理地址。",
+        };
+        return Ok(json!({
+            "url": format!("http://127.0.0.1:{pport}/{secret}"),
+            "msg": msg,
+            "action": "proxy-only"
+        }));
+    }
 
     let dir = config::default_dir();
     let cfg = config::load_from(&dir).map_err(|e| e.to_string())?;
@@ -859,6 +901,9 @@ fn first_http_url(stdout: &str) -> Option<String> {
 /// 取沙箱 UI 链接：`<bin> url --data-dir <home>/.claude-science`，HOME 指向沙箱 HOME。
 /// 失败退回 http://127.0.0.1:<port>。沙箱 HOME 用 [`sandbox_home`]（与 launch 时一致）。
 fn sandbox_url(port: u16) -> String {
+    if cfg!(target_os = "windows") {
+        return format!("http://127.0.0.1:{port}");
+    }
     let home = sandbox_home();
     let data_dir = home.join(".claude-science");
     let bin = science_bin();
@@ -885,6 +930,9 @@ fn sandbox_url(port: u16) -> String {
 /// `port` 且返回 200 的冒名服务骗过；再叠加端口 /health 确认确实在服务。二进制不在（纯 dev /
 /// 研究者机器）时退化为仅端口探活（原行为）。
 fn sandbox_running_ours(port: u16) -> bool {
+    if cfg!(target_os = "windows") {
+        return false;
+    }
     let home = sandbox_home();
     let data_dir = home.join(".claude-science");
     let bin = science_bin();
@@ -964,6 +1012,25 @@ fn open_url(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
 
 #[tauri::command]
 fn run_doctor(app: tauri::AppHandle) -> Result<String, String> {
+    if cfg!(target_os = "windows") {
+        let cfg = config::load_from(&config::default_dir()).unwrap_or_default();
+        let key_state = if cfg.key_for(&cfg.provider).is_some() {
+            "present"
+        } else {
+            "absent"
+        };
+        return Ok(format!(
+            "CSSwitch doctor (Windows 11)\nprovider={}  proxy_port={}  sandbox_port={}\npython3={}\nprovider_key={}\n说明：Windows 11 当前支持配置面板、代理与 provider 校验；Claude Science 沙箱启动仍需 macOS/Linux 可用的 Science 运行时。",
+            cfg.provider,
+            cfg.proxy_port,
+            cfg.sandbox_port,
+            proc::find_exe("python3")
+                .or_else(|| proc::find_exe("python"))
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "missing".to_string()),
+            key_state
+        ));
+    }
     let root = asset_root(&app).ok_or("找不到 scripts/doctor.sh（打包资源或仓库根均未命中）。")?;
     let cfg = config::load_from(&config::default_dir()).unwrap_or_default();
     let doctor = root.join("scripts/doctor.sh");

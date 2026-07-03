@@ -16,7 +16,7 @@ function mockInvoke(cmd, args) {
         proxy_port: 18991,
         sandbox_port: 8990,
         mode: "proxy",
-        keys: { deepseek: "", qwen: "", mimo: "", minimax: "", custom: "" },
+        keys: { deepseek: "", qwen: "", glm: "", mimo: "", minimax: "", custom: "" },
         custom: { api_url: "", api_format: "openai", model: "", display_name: "", max_tokens: 8192 },
       });
     case "set_mode":
@@ -54,6 +54,7 @@ let mode = "proxy"; // "proxy" 第三方 | "official" 官方
 const KEY_LABELS = {
   deepseek: "DeepSeek API Key",
   qwen: "DashScope (通义千问) API Key",
+  glm: "智谱 GLM API Key",
   mimo: "小米 MiMo API Key",
   minimax: "MiniMax API Key",
   custom: "自定义 API Key",

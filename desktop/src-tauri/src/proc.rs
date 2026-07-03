@@ -142,12 +142,34 @@ pub fn which(name: &str) -> Option<PathBuf> {
 /// 在给定目录序列里找可执行文件（第一个命中即返回）。
 fn find_in_dirs(name: &str, dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
     for dir in dirs {
-        let cand = dir.join(name);
-        if is_exec(&cand) {
-            return Some(cand);
+        for candidate in executable_names(name) {
+            let cand = dir.join(candidate);
+            if is_exec(&cand) {
+                return Some(cand);
+            }
         }
     }
     None
+}
+
+fn executable_names(name: &str) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let path = std::path::Path::new(name);
+        if path.extension().is_some() {
+            return vec![name.to_string()];
+        }
+        vec![
+            name.to_string(),
+            format!("{name}.exe"),
+            format!("{name}.cmd"),
+            format!("{name}.bat"),
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        vec![name.to_string()]
+    }
 }
 
 /// macOS 上 node/python 等的常见安装目录（不含系统最小 PATH 已覆盖的 `/usr/bin` 等）：
@@ -244,20 +266,26 @@ pub fn find_exe(name: &str) -> Option<PathBuf> {
 }
 
 fn is_exec(p: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    match std::fs::metadata(p) {
-        Ok(md) => md.is_file() && (md.permissions().mode() & 0o111 != 0),
-        Err(_) => false,
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match std::fs::metadata(p) {
+            Ok(md) => md.is_file() && (md.permissions().mode() & 0o111 != 0),
+            Err(_) => false,
+        }
+    }
+    #[cfg(windows)]
+    {
+        std::fs::metadata(p).map(|md| md.is_file()).unwrap_or(false)
     }
 }
 
-/// 生成一次性 path-secret：从 /dev/urandom 取 16 字节，hex 编码为 32 字符。
-/// 失败关闭：urandom 不可用时返回 Err，绝不退回可猜的弱 secret（宁可起代理失败）。
+/// 生成一次性 path-secret：从系统随机源取 16 字节，hex 编码为 32 字符。
+/// 失败关闭：随机源不可用时返回 Err，绝不退回可猜的弱 secret（宁可起代理失败）。
 pub fn gen_secret() -> std::io::Result<String> {
-    use std::fs::File;
     let mut b = [0u8; 16];
-    let mut f = File::open("/dev/urandom")?;
-    f.read_exact(&mut b)?;
+    getrandom::getrandom(&mut b)
+        .map_err(|e| std::io::Error::other(format!("getrandom failed: {e}")))?;
     Ok(hex(&b))
 }
 

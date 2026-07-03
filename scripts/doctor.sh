@@ -4,7 +4,7 @@
 #   - 绝不打印任何 provider key 的值（只报 present/absent）。
 #   - 端口命中真实实例保留端口 8765 直接失败（铁律）。
 # 覆盖变量（便于测试与自定义）：
-#   CSSWITCH_PROVIDER (deepseek|qwen|mimo|minimax|custom)  CSSWITCH_PROXY_PORT  CSSWITCH_SANDBOX_PORT
+#   CSSWITCH_PROVIDER (deepseek|qwen|glm|mimo|minimax|custom)  CSSWITCH_PROXY_PORT  CSSWITCH_SANDBOX_PORT
 #   CSSWITCH_CONFIG (config.json 路径)  SCIENCE_BIN
 set -u
 
@@ -36,6 +36,7 @@ echo "[Provider Key]"
 case "$PROVIDER" in
   deepseek) KEY_ENV="DEEPSEEK_API_KEY"; KEY_VAL="${DEEPSEEK_API_KEY:-}";;
   qwen)     KEY_ENV="DASHSCOPE_API_KEY"; KEY_VAL="${DASHSCOPE_API_KEY:-}";;
+  glm)      KEY_ENV="GLM_API_KEY"; KEY_VAL="${GLM_API_KEY:-}";;
   mimo)     KEY_ENV="MIMO_API_KEY"; KEY_VAL="${MIMO_API_KEY:-}";;
   minimax)  KEY_ENV="MINIMAX_API_KEY"; KEY_VAL="${MINIMAX_API_KEY:-}";;
   custom)   KEY_ENV="CUSTOM_API_KEY"; KEY_VAL="${CUSTOM_API_KEY:-}";;

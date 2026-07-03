@@ -18,7 +18,8 @@
 //! 与 `.mjs` 的 v2 GCM 格式**字节兼容**，由本文件 `tests` 的 node↔rust 双向对拍单测钉死。
 
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -58,9 +59,9 @@ pub enum LoginAction {
 
 // ---------- 随机与编码 ----------
 fn rand_bytes(n: usize) -> std::io::Result<Vec<u8>> {
-    let mut f = std::fs::File::open("/dev/urandom")?;
     let mut b = vec![0u8; n];
-    f.read_exact(&mut b)?;
+    getrandom::getrandom(&mut b)
+        .map_err(|e| std::io::Error::other(format!("getrandom failed: {e}")))?;
     Ok(b)
 }
 
@@ -187,23 +188,33 @@ fn safe_write(path: &Path, data: &[u8], mode: u32) -> Result<(), String> {
     let suffix = hex(&rand_bytes(6).map_err(|e| e.to_string())?);
     let tmp = parent.join(format!(".tmp-{suffix}"));
     {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true) // O_CREAT|O_EXCL
-            .mode(mode)
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true); // O_CREAT|O_EXCL
+        #[cfg(unix)]
+        opts.mode(mode);
+        let mut f = opts
             .open(&tmp)
             .map_err(|e| format!("建临时文件失败：{e}"))?;
         f.write_all(data)
             .map_err(|e| format!("写临时文件失败：{e}"))?;
     }
     std::fs::rename(&tmp, path).map_err(|e| format!("rename 失败：{e}"))?;
+    set_mode(path, mode).map_err(|e| format!("chmod 失败：{e}"))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .map_err(|e| format!("chmod 失败：{e}"))?;
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }
 
 fn chmod_best_effort(p: &Path, mode: u32) {
-    let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode));
+    let _ = set_mode(p, mode);
 }
 
 // ---------- 主流程 ----------
@@ -768,6 +779,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn forge_rejects_symlink_into_real_science_tree() {
         // 铁律回归：把沙箱根的祖先预置成指向【真实 Science 目录】的符号链接——此时沙箱根
         // 自身也解析进真实树，仅靠护栏 1「沙箱根内」会放行（resolved 与 root 同在真实树内）。
@@ -804,6 +816,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn forge_rejects_symlink_escaping_sandbox_root() {
         // P1 回归：把沙箱内的 auth_dir 预置成指向沙箱外目录的符号链接，伪造器必须
         // 在写任何文件之前拒绝，且绝不碰链接目标。
