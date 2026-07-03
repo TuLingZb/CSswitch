@@ -30,7 +30,24 @@
         <select id="provider">
           <option value="deepseek">DeepSeek（原生 Anthropic 端点）</option>
           <option value="qwen">通义千问 Qwen（DashScope 翻译）</option>
+          <option value="mimo">小米 MiMo（原生 Anthropic 端点）</option>
+          <option value="minimax">MiniMax（原生 Anthropic 端点）</option>
+          <option value="custom">自定义 API（OpenAI / Anthropic）</option>
         </select>
+      </div>
+
+      <div class="sec tp-only custom-only">
+        <label>自定义 API</label>
+        <div class="custom-grid">
+          <select id="customApiFormat">
+            <option value="openai">OpenAI 兼容</option>
+            <option value="anthropic">Anthropic 兼容</option>
+          </select>
+          <input id="customMaxTokens" inputmode="numeric" value="8192" />
+        </div>
+        <input id="customApiUrl" class="stacked" placeholder="https://api.example.com/v1" spellcheck="false" />
+        <input id="customModel" class="stacked" placeholder="模型名，例如 kimi-k2 或 gpt-4.1" spellcheck="false" />
+        <input id="customDisplayName" class="stacked" placeholder="显示名（可选）" spellcheck="false" />
       </div>
 
       <div class="sec tp-only">

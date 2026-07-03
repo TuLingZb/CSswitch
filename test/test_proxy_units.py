@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "proxy"))
 import csswitch_proxy as cs
@@ -64,6 +65,39 @@ class MaxTokensPerModel(unittest.TestCase):
     def test_qwen_per_model(self):
         cs.PROV = cs.PROVIDERS["qwen"]
         self.assertEqual(cs.clamp_max_tokens(100000, "qwen-max"), 8192)
+
+
+class ProviderRegistry(unittest.TestCase):
+    def test_new_builtin_providers_exist(self):
+        self.assertEqual(cs.PROVIDERS["mimo"]["mode"], "anthropic")
+        self.assertIn("xiaomimimo.com", cs.PROVIDERS["mimo"]["url"])
+        self.assertEqual(cs.PROVIDERS["minimax"]["mode"], "anthropic")
+        self.assertIn("minimax.io", cs.PROVIDERS["minimax"]["url"])
+
+    def test_normalize_custom_urls(self):
+        self.assertEqual(
+            cs.normalize_upstream_url("https://api.example.com/v1", "openai"),
+            "https://api.example.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            cs.normalize_upstream_url("https://api.example.com/anthropic", "anthropic"),
+            "https://api.example.com/anthropic/v1/messages",
+        )
+
+    def test_build_custom_provider(self):
+        args = SimpleNamespace(
+            custom_mode="openai",
+            custom_url="https://api.example.com/v1",
+            custom_model="agent-model",
+            custom_display="Agent Model",
+            custom_max_tokens="4096",
+            custom_key_env=None,
+        )
+        prov = cs.build_custom_provider(args)
+        self.assertEqual(prov["mode"], "openai")
+        self.assertEqual(prov["url"], "https://api.example.com/v1/chat/completions")
+        self.assertEqual(prov["default_model"], "agent-model")
+        self.assertEqual(prov["default_cap"], 4096)
 
 
 if __name__ == "__main__":

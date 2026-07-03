@@ -25,6 +25,8 @@ body{
 .official-only{display:none}
 .panel.mode-official .tp-only{display:none}
 .panel.mode-official .official-only{display:block}
+.custom-only{display:none}
+.panel.provider-custom .custom-only{display:block}
 .brand{display:flex;align-items:center;gap:8px;font-weight:650;font-size:14px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(47,191,113,.16)}
 .dot.amber{background:var(--amber);box-shadow:0 0 0 3px rgba(230,162,60,.16)}
@@ -53,6 +55,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;
 .btn.small{height:32px}
 .ports{display:flex;gap:10px}
 .ports .fld{flex:1}
+.custom-grid{display:grid;grid-template-columns:1fr 96px;gap:8px}
+.stacked{margin-top:8px}
 .hero{width:100%;height:42px;border:none;border-radius:11px;color:#fff;font-size:14px;font-weight:700;
   background:linear-gradient(180deg,var(--accent),var(--accent2));cursor:pointer;
   box-shadow:0 6px 16px rgba(194,90,52,.34);display:flex;align-items:center;justify-content:center;gap:8px}

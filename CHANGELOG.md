@@ -4,6 +4,24 @@
 
 > **约定**：已修问题从 [`docs/known-issues.md`](docs/known-issues.md)「毕业」到这里（发布即定稿）；未修/进行中留在 known-issues；硬 bug 的根因证据链存在 [`findings/`](findings/)。
 
+## [0.3.0] — 2026-07-03
+
+> 主题：扩展第三方模型与 Linux 兼容。Provider 从固定 DeepSeek/Qwen 扩为内置多厂商 + 自定义 API，桌面端与脚本去掉一批 macOS 专属假设。
+
+### 新增 Added
+- **新增内置 provider**：小米 MiMo（Anthropic 原生透传）与 MiniMax（Anthropic 原生透传），分别使用 `MIMO_API_KEY` / `MINIMAX_API_KEY` 注入上游密钥。
+- **新增自定义 API provider**：面板可配置 API URL、API 格式（OpenAI 兼容或 Anthropic 兼容）、模型名、显示名和 `max_tokens`；代理会把 base URL 归一化到 `/chat/completions` 或 `/v1/messages`，适配自建网关、本地模型和更多第三方平台。
+- **代理注册表扩展测试**：补充 MiMo/MiniMax 注册、自定义 URL 归一化与自定义 provider 构造单测。
+
+### 变更 Changed
+- 桌面设置与状态灯支持 custom provider：配置文件继续向后兼容，状态灯会检查自定义 API URL 的主机可达性。
+- 检查更新、反馈和 release 跳转改回当前仓库 `TuLingZb/CSswitch`。
+
+### Linux
+- 启动/停止沙箱脚本由 zsh 专属语法改为 bash，`SCIENCE_BIN` 可覆盖 Science 二进制路径；非 macOS 自动跳过 Keychain 初始化，运行时资产复制在 Linux 下使用 `cp --reflink=auto` 兜底。
+- 浏览器/目录打开从 macOS `open` 扩展为 macOS `open`、Linux `xdg-open`、Windows 兜底。
+- 依赖查找不再硬依赖 zsh：优先 zsh，缺失时降级 bash/sh。
+
 ## [0.2.1] — 2026-07-03
 
 > 主题：热修「开了 CSSwitch 仍被要求登录」。0.2.0 有两个会导致「流程走完仍落登录页」的缺陷，本版各修一个并各补一条离线回归测试。链路方案本身没坏（代理此前成功处理过真实聊天、虚拟 OAuth 结构自洽），坏的是「重开 / 取入口 URL」路径。

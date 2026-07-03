@@ -4,7 +4,7 @@
 #   - 绝不打印任何 provider key 的值（只报 present/absent）。
 #   - 端口命中真实实例保留端口 8765 直接失败（铁律）。
 # 覆盖变量（便于测试与自定义）：
-#   CSSWITCH_PROVIDER (deepseek|qwen)  CSSWITCH_PROXY_PORT  CSSWITCH_SANDBOX_PORT
+#   CSSWITCH_PROVIDER (deepseek|qwen|mimo|minimax|custom)  CSSWITCH_PROXY_PORT  CSSWITCH_SANDBOX_PORT
 #   CSSWITCH_CONFIG (config.json 路径)  SCIENCE_BIN
 set -u
 
@@ -36,14 +36,20 @@ echo "[Provider Key]"
 case "$PROVIDER" in
   deepseek) KEY_ENV="DEEPSEEK_API_KEY"; KEY_VAL="${DEEPSEEK_API_KEY:-}";;
   qwen)     KEY_ENV="DASHSCOPE_API_KEY"; KEY_VAL="${DASHSCOPE_API_KEY:-}";;
+  mimo)     KEY_ENV="MIMO_API_KEY"; KEY_VAL="${MIMO_API_KEY:-}";;
+  minimax)  KEY_ENV="MINIMAX_API_KEY"; KEY_VAL="${MINIMAX_API_KEY:-}";;
+  custom)   KEY_ENV="CUSTOM_API_KEY"; KEY_VAL="${CUSTOM_API_KEY:-}";;
   *)        KEY_ENV=""; KEY_VAL="";;
 esac
 if [ -z "$KEY_ENV" ]; then
-  fail "未知 provider：${PROVIDER}（应为 deepseek 或 qwen）"
+  fail "未知 provider：${PROVIDER}"
 elif [ -n "$KEY_VAL" ]; then
   pass "$KEY_ENV 已设置（值不显示）"
 else
   warn "$KEY_ENV 未在环境中设置（可改用 config.json 或代理 --env-file 提供）"
+fi
+if [ "$PROVIDER" = "custom" ]; then
+  warn "custom provider 需在面板配置 API URL、API 格式和模型名"
 fi
 
 echo "[端口]"

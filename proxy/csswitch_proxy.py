@@ -26,6 +26,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---------- provider 注册表 ----------
@@ -86,6 +87,47 @@ PROVIDERS = {
         "default_cap": 8192,
         "default_model": "qwen-plus",
     },
+    "mimo": {
+        "mode": "anthropic",
+        "url": "https://api.xiaomimimo.com/anthropic/v1/messages",
+        "key_env": "MIMO_API_KEY",
+        "models": [
+            ("claude-opus-4-8", "MiMo V2.5 Pro"),
+            ("claude-haiku-4-5", "MiMo V2.5"),
+        ],
+        "model_map": {
+            "claude-opus-4-8": "mimo-v2.5-pro",
+            "claude-sonnet-5": "mimo-v2.5-pro",
+            "claude-sonnet-4-6": "mimo-v2.5-pro",
+            "claude-haiku-4-5": "mimo-v2.5",
+        },
+        "model_caps": {
+            "mimo-v2.5-pro": 8192,
+            "mimo-v2.5": 8192,
+        },
+        "default_cap": 8192,
+        "default_model": "mimo-v2.5-pro",
+    },
+    "minimax": {
+        "mode": "anthropic",
+        "url": "https://api.minimax.io/anthropic/v1/messages",
+        "key_env": "MINIMAX_API_KEY",
+        "models": [
+            ("claude-opus-4-8", "MiniMax M3"),
+            ("claude-haiku-4-5", "MiniMax M3 Fast"),
+        ],
+        "model_map": {
+            "claude-opus-4-8": "MiniMax-M3",
+            "claude-sonnet-5": "MiniMax-M3",
+            "claude-sonnet-4-6": "MiniMax-M3",
+            "claude-haiku-4-5": "MiniMax-M3",
+        },
+        "model_caps": {
+            "MiniMax-M3": 8192,
+        },
+        "default_cap": 8192,
+        "default_model": "MiniMax-M3",
+    },
 }
 
 PROV = None      # 当前 provider 配置（dict），运行时设定
@@ -124,10 +166,56 @@ def log(msg):
             f.write(line + "\n")
 
 
+def normalize_upstream_url(url, mode):
+    """允许用户填 base_url 或完整端点，统一成代理实际 POST 的 URL。"""
+    if not url:
+        return url
+    u = url.rstrip("/")
+    path = urllib.parse.urlparse(u).path.rstrip("/")
+    if mode == "anthropic":
+        return u if path.endswith("/v1/messages") else u + "/v1/messages"
+    return u if path.endswith("/chat/completions") else u + "/chat/completions"
+
+
+def build_custom_provider(args):
+    mode = (args.custom_mode or os.environ.get("CSSWITCH_CUSTOM_MODE") or "openai").lower()
+    if mode not in ("openai", "anthropic"):
+        raise ValueError("--custom-mode 只能是 openai 或 anthropic")
+    raw_url = args.custom_url or os.environ.get("CSSWITCH_CUSTOM_URL") or os.environ.get("CSSWITCH_UPSTREAM_URL")
+    model = args.custom_model or os.environ.get("CSSWITCH_CUSTOM_MODEL")
+    if not raw_url:
+        raise ValueError("custom provider 需要 --custom-url 或 CSSWITCH_CUSTOM_URL")
+    if not model:
+        raise ValueError("custom provider 需要 --custom-model 或 CSSWITCH_CUSTOM_MODEL")
+    display = args.custom_display or os.environ.get("CSSWITCH_CUSTOM_DISPLAY") or f"Custom {model}"
+    cap = int(args.custom_max_tokens or os.environ.get("CSSWITCH_CUSTOM_MAX_TOKENS") or "8192")
+    key_env = args.custom_key_env or os.environ.get("CSSWITCH_CUSTOM_KEY_ENV") or "CUSTOM_API_KEY"
+    return {
+        "mode": mode,
+        "url": normalize_upstream_url(raw_url, mode),
+        "key_env": key_env,
+        "models": [
+            ("claude-opus-4-8", display),
+            ("claude-haiku-4-5", f"{display} Fast"),
+        ],
+        "model_map": {
+            "claude-opus-4-8": model,
+            "claude-sonnet-5": model,
+            "claude-sonnet-4-6": model,
+            "claude-haiku-4-5": model,
+        },
+        "model_caps": {model: cap},
+        "default_cap": cap,
+        "default_model": model,
+    }
+
+
 def load_key(prov, args):
     env = prov["key_env"]
     if os.environ.get(env):
         return os.environ[env].strip()
+    if args.custom_key:
+        return args.custom_key.strip()
     if args.env_file and os.path.isfile(args.env_file):
         for raw in open(args.env_file):
             raw = raw.strip()
@@ -639,21 +727,32 @@ class H(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", default=os.environ.get("CSSWITCH_PROVIDER", "deepseek"),
-                    choices=list(PROVIDERS.keys()))
+                    choices=list(PROVIDERS.keys()) + ["custom"])
     ap.add_argument("--port", type=int, default=18991)
     ap.add_argument("--env-file", default=None)
     ap.add_argument("--log", default=None)
     ap.add_argument("--auth-token", default=None)
+    ap.add_argument("--custom-url", default=None)
+    ap.add_argument("--custom-mode", default=None, choices=["openai", "anthropic"])
+    ap.add_argument("--custom-model", default=None)
+    ap.add_argument("--custom-display", default=None)
+    ap.add_argument("--custom-max-tokens", default=None)
+    ap.add_argument("--custom-key-env", default=None)
+    ap.add_argument("--custom-key", default=None)
     args = ap.parse_args()
     PROV_NAME = args.provider
-    PROV = PROVIDERS[PROV_NAME]
+    try:
+        PROV = build_custom_provider(args) if PROV_NAME == "custom" else PROVIDERS[PROV_NAME]
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
     LOG = args.log
     KEY = load_key(PROV, args)
     AUTH_SECRET = os.environ.get("CSSWITCH_AUTH_TOKEN") or args.auth_token
     _up = os.environ.get("CSSWITCH_UPSTREAM_URL")
-    if _up:
+    if _up and PROV_NAME != "custom":
         PROV = dict(PROV)
-        PROV["url"] = _up
+        PROV["url"] = normalize_upstream_url(_up, PROV["mode"])
     if not KEY:
         print(f"找不到 {PROV['key_env']}。用环境变量或 --env-file <路径> 提供。", file=sys.stderr)
         sys.exit(1)

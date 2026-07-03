@@ -33,7 +33,7 @@ DeepSeek 原生 Anthropic 端点 / 阿里 DashScope（千问）/ 其它 OpenAI �
 ## 三、速查（详情见 docs/ 与 memory/）
 
 - **必知三条**：① `ANTHROPIC_BASE_URL` 无条件生效；② 手动填 API key 被 operon 写死拒绝，**必须有 OAuth 门票**；③ 门票用本地伪造虚拟 OAuth 越过。完整证据与格式 → `docs/verified-facts.md`。
-- **发布态 / 待办**：已公开于 github.com/SuperJJ007/CSswitch；桌面 app 在 `desktop/`（Tauri **正常窗口**进程管家，已去托盘）。**当前 Latest 版本以 GitHub Releases / [`CHANGELOG.md`](CHANGELOG.md) 为准**；**待办队列与排期** → [`docs/known-issues.md`](docs/known-issues.md)。（此处不写具体版本号与「当前最优先」等易变状态，那些归 known-issues 与项目记忆 `memory/`。）
+- **发布态 / 待办**：已公开于 github.com/TuLingZb/CSswitch；桌面 app 在 `desktop/`（Tauri **正常窗口**进程管家，已去托盘）。**当前 Latest 版本以 GitHub Releases / [`CHANGELOG.md`](CHANGELOG.md) 为准**；**待办队列与排期** → [`docs/known-issues.md`](docs/known-issues.md)。（此处不写具体版本号与「当前最优先」等易变状态，那些归 known-issues 与项目记忆 `memory/`。）
 - **对外文案（脱敏）**：用户**可见**文案不露骨，别直说「越过 / 绕过登录」；主按钮用「一键开始」类中性说法。技术**内部**文档描述机制时可仍用「越过门票」。详见 `docs/known-issues.md` 第 1 条。
 - **上游/模型**：默认 DeepSeek（原生 Anthropic 透传），可 `--provider qwen`（翻译）。模型映射与选择器广告 id 见 `csswitch_proxy.py` 的 `PROVIDERS`。
 - **每日维护巡检**：launchd 每天 09:00/21:00（Asia/Shanghai）跑受限 `claude -p`，**只读仓库 + 抓公开网页 + 只往 `findings/auto-maint/` 写规划报告**（白名单工具、硬禁 commit/push/rm、禁读写 `~/.claude-science`、不启动 Science）。装卸看：`scripts/install-maintenance.sh {install|uninstall|status|run}`。

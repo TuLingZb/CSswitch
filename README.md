@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-1d1d1f.svg" alt="macOS">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-1d1d1f.svg" alt="macOS and Linux">
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-C25A34.svg" alt="Tauri 2">
 </p>
 
@@ -12,7 +12,7 @@
 
 [Claude Science](https://claude.com) 是一套 **AI agent 原生的科研平台**：从查找、分析文献，到科研数据分析，再到图片与文章制作，全流程打通。
 
-CSSwitch 让你**无需 Claude 订阅**也能用上它：填入你自选的第三方 API（DeepSeek、通义千问，或任意 OpenAI 兼容端点）即可。Science 那套 AI agent 科研体验照旧，底层模型换成你自己的。类比 CC Switch 之于 Claude Code。
+CSSwitch 让你**无需 Claude 订阅**也能用上它：填入你自选的第三方 API（DeepSeek、通义千问、小米 MiMo、MiniMax，或任意 OpenAI / Anthropic 兼容端点）即可。Science 那套 AI agent 科研体验照旧，底层模型换成你自己的。类比 CC Switch 之于 Claude Code。
 
 ## 背景
 
@@ -24,15 +24,15 @@ Claude Science（沙箱 · 虚拟登录）
    ▼
 csswitch_proxy.py（本地翻译代理：剥离入站 Bearer、注入你的第三方 key）
    ▼
-DeepSeek 原生 Anthropic 端点  /  通义千问等 OpenAI 兼容端点
+DeepSeek / MiMo / MiniMax 原生 Anthropic 端点  /  通义千问与自定义 OpenAI 兼容端点
 ```
 
 ## 特性（安全 · 易用）
 
 **易用**
 
-- **开箱即用**：一个 macOS 桌面 app 把一切串好。你只需填入自己的第三方 API key，点「一键开始」，浏览器自动打开已登录的 Science。**零 node 运行时依赖**：虚拟登录已是 Rust 原生实现，装了就能用，不再要求本机有 node。
-- **自选模型**：DeepSeek、通义千问，或任意 OpenAI 兼容端点，面板里随时切换。
+- **开箱即用**：一个桌面 app 把一切串好。你只需填入自己的第三方 API key，点「一键开始」，浏览器自动打开已登录的 Science。**零 node 运行时依赖**：虚拟登录已是 Rust 原生实现，装了就能用，不再要求本机有 node。
+- **自选模型**：DeepSeek、通义千问、小米 MiMo、MiniMax，或任意 OpenAI / Anthropic 兼容端点，面板里随时切换。
 - **第三方 / 官方一键切换**：有 Claude 订阅、想走官方时，面板顶部切到「官方 Claude」即可干净交回你真实的 Science 与订阅（CSSwitch 不插手你的官方登录、也不起代理与沙箱）。
 - **原生保真**：DeepSeek 走原生 Anthropic 端点，thinking 与工具调用不失真。
 
@@ -52,7 +52,7 @@ DeepSeek 原生 Anthropic 端点  /  通义千问等 OpenAI 兼容端点
 
 > 你唯一要提供的就是**你自己的第三方 API key**（你付费的 key，无法内置到 app 里）。其余全自动。
 >
-> **首次打开被 Gatekeeper 拦是正常的**：本 app 做了 ad-hoc 签名但未做 Apple 公证。右键 →「打开」，或到系统设置 → 隐私与安全性 →「仍要打开」。目前仅 arm64（Apple Silicon）。
+> **macOS 首次打开被 Gatekeeper 拦是正常的**：本 app 做了 ad-hoc 签名但未做 Apple 公证。右键 →「打开」，或到系统设置 → 隐私与安全性 →「仍要打开」。Linux 下可通过 `SCIENCE_BIN` 指向可用的 Science 二进制。
 
 开发者的命令行用法（手动起代理与沙箱）、构建与测试，见 [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) 与 [`desktop/README.md`](./desktop/README.md)。
 
@@ -63,7 +63,7 @@ DeepSeek 原生 Anthropic 端点  /  通义千问等 OpenAI 兼容端点
 **更广泛的模型与 API 支持**
 
 - 内建更多第三方 provider：Kimi（Moonshot）、智谱 GLM、OpenRouter、本地 Ollama 等。
-- 面板内直接配置任意 OpenAI 兼容端点（自定义 `base_url`、模型名、鉴权头），无需改代码。
+- 面板内继续增强自定义端点体验（鉴权头、模型映射编辑、预设导入导出），无需改代码。
 - 每个 provider 的模型映射与选择器展示可在界面里编辑。
 
 **多学科的 Skill / MCP 支持**
@@ -76,15 +76,15 @@ DeepSeek 原生 Anthropic 端点  /  通义千问等 OpenAI 兼容端点
 
 - Qwen 走真流式翻译，降低首 token 延迟（DeepSeek 已是原生透传真流式）。
 - 继续收敛运行时依赖：把翻译代理移到 Rust（axum）以拔掉 python（虚拟登录的 node 依赖已在 v0.1.4 拔除），最终做到零外部运行时。
-- Intel（x86_64）与 universal 构建；可选的正式签名与 Apple 公证。
+- Intel（x86_64）、universal 与 Linux 安装包构建；可选的正式签名与 Apple 公证。
 - 面板增加日志查看、用量统计、更快的 provider 切换入口。
 
 ## 反馈与报错
 
 遇到问题或有想法，欢迎在 GitHub 提交（比私信更利于跟踪与复用）：
 
-- **报 bug**：[新建 Bug 反馈](https://github.com/SuperJJ007/CSswitch/issues/new?template=bug_report.yml)，或面板右下角「反馈 / 报 bug」直接跳转。
-- **提功能 / 想支持的 API**：[新建功能建议](https://github.com/SuperJJ007/CSswitch/issues/new?template=feature_request.yml)。
+- **报 bug**：[新建 Bug 反馈](https://github.com/TuLingZb/CSswitch/issues/new?template=bug_report.yml)，或面板右下角「反馈 / 报 bug」直接跳转。
+- **提功能 / 想支持的 API**：[新建功能建议](https://github.com/TuLingZb/CSswitch/issues/new?template=feature_request.yml)。
 - **附日志更快定位**：面板「日志」链接会打开 `~/.csswitch/logs/`（`proxy.log`、`sandbox.log`）。**贴之前务必先删掉任何 API key / 令牌。**
 
 隐私：本项目**不含任何自动遥测 / 崩溃上报**，不会在后台把你的数据发给任何人。所有反馈都由你手动提交、内容由你决定。

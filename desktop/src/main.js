@@ -11,7 +11,14 @@ const invoke = PREVIEW
 function mockInvoke(cmd, args) {
   switch (cmd) {
     case "get_config":
-      return Promise.resolve({ provider: "deepseek", proxy_port: 18991, sandbox_port: 8990, mode: "proxy", keys: { deepseek: "", qwen: "" } });
+      return Promise.resolve({
+        provider: "deepseek",
+        proxy_port: 18991,
+        sandbox_port: 8990,
+        mode: "proxy",
+        keys: { deepseek: "", qwen: "", mimo: "", minimax: "", custom: "" },
+        custom: { api_url: "", api_format: "openai", model: "", display_name: "", max_tokens: 8192 },
+      });
     case "set_mode":
     case "open_official":
       return Promise.resolve(null);
@@ -44,7 +51,13 @@ let statusTimer = null;
 let busy = false;
 let mode = "proxy"; // "proxy" 第三方 | "official" 官方
 
-const KEY_LABELS = { deepseek: "DeepSeek API Key", qwen: "DashScope (通义千问) API Key" };
+const KEY_LABELS = {
+  deepseek: "DeepSeek API Key",
+  qwen: "DashScope (通义千问) API Key",
+  mimo: "小米 MiMo API Key",
+  minimax: "MiniMax API Key",
+  custom: "自定义 API Key",
+};
 
 function setMsg(text, kind) {
   els.msg.textContent = text;
@@ -72,6 +85,12 @@ async function loadConfig() {
     els.provider.value = cfg.provider || "deepseek";
     els.proxyPort.value = cfg.proxy_port ?? 18991;
     els.sandboxPort.value = cfg.sandbox_port ?? 8990;
+    const custom = cfg.custom || {};
+    els.customApiUrl.value = custom.api_url || "";
+    els.customApiFormat.value = custom.api_format || "openai";
+    els.customModel.value = custom.model || "";
+    els.customDisplayName.value = custom.display_name || "";
+    els.customMaxTokens.value = custom.max_tokens || 8192;
     window._keys = cfg.keys || {};
     reflectProvider();
     applyMode(cfg.mode === "official" ? "official" : "proxy");
@@ -138,6 +157,7 @@ async function heroClick() {
 
 function reflectProvider() {
   const p = els.provider.value;
+  els.panel.classList.toggle("provider-custom", p === "custom");
   els.keyLabel.textContent = KEY_LABELS[p] || "API Key";
   const masked = (window._keys && window._keys[p]) || "";
   els.keyInput.value = "";
@@ -149,6 +169,11 @@ function currentSettings() {
     provider: els.provider.value,
     proxy_port: parseInt(els.proxyPort.value, 10) || 18991,
     sandbox_port: parseInt(els.sandboxPort.value, 10) || 8990,
+    custom_api_url: els.customApiUrl.value.trim(),
+    custom_api_format: els.customApiFormat.value,
+    custom_model: els.customModel.value.trim(),
+    custom_display_name: els.customDisplayName.value.trim(),
+    custom_max_tokens: parseInt(els.customMaxTokens.value, 10) || 8192,
   };
 }
 
@@ -276,7 +301,7 @@ async function checkUpdate() {
   try { cur = await call("app_version"); } catch (e) {}
   try {
     const resp = await fetch(
-      "https://api.github.com/repos/SuperJJ007/CSswitch/releases/latest",
+      "https://api.github.com/repos/TuLingZb/CSswitch/releases/latest",
       { headers: { Accept: "application/vnd.github+json" } }
     );
     if (!resp.ok) throw new Error("HTTP " + resp.status);
@@ -312,6 +337,7 @@ async function refreshStatus() {
 function wire() {
   [
     "provider", "keyLabel", "keyInput", "saveKeyBtn", "proxyPort", "sandboxPort",
+    "customApiUrl", "customApiFormat", "customModel", "customDisplayName", "customMaxTokens",
     "oneClickBtn", "stopBtn", "ltProxy", "ltSandbox", "ltUpstream",
     "msg", "brandDot", "openBrowserBtn", "doctorBtn", "updateBtn", "verLabel",
     "reportBtn", "logsBtn", "quitBtn", "modeSeg",
@@ -328,6 +354,8 @@ function wire() {
   });
   els.proxyPort.addEventListener("change", persistSettingsSafe);
   els.sandboxPort.addEventListener("change", persistSettingsSafe);
+  [els.customApiUrl, els.customApiFormat, els.customModel, els.customDisplayName, els.customMaxTokens]
+    .forEach((el) => el.addEventListener("change", persistSettingsSafe));
   els.saveKeyBtn.addEventListener("click", saveKey);
   els.stopBtn.addEventListener("click", stopAll);
   els.oneClickBtn.addEventListener("click", heroClick);

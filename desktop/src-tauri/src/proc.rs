@@ -176,10 +176,9 @@ fn common_bin_dirs() -> Vec<PathBuf> {
 
 /// [`which`] 找不到时的最后兜底：用登录 shell 解析用户的**真实 PATH**。
 ///
-/// GUI/.app 从访达启动只有最小 PATH，且用户可能用 fnm / nvm / asdf 等在 `.zshrc`
-/// 里配置的版本管理器（[`common_bin_dirs`] 的静态枚举覆盖不到）。这里跑
-/// `zsh -lic 'command -v <name>'`（登录 + 交互 shell，会 source 用户 rc）拿其真实
-/// 解析路径。用独立线程 + `recv_timeout` 兜底，病态 rc 不会卡死调用方。
+/// GUI/.app 从访达启动只有最小 PATH，且用户可能用 fnm / nvm / asdf 等在 shell rc
+/// 里配置的版本管理器（[`common_bin_dirs`] 的静态枚举覆盖不到）。这里跑可用的登录
+/// shell 拿其真实解析路径。用超时兜底，病态 rc 不会卡死调用方。
 pub fn which_via_login_shell(name: &str) -> Option<PathBuf> {
     // name 出自本代码（"node"/"python3"），仍做白名单，杜绝拼进 shell 的注入面。
     if name.is_empty()
@@ -190,9 +189,16 @@ pub fn which_via_login_shell(name: &str) -> Option<PathBuf> {
         return None;
     }
     let arg = format!("command -v {name} 2>/dev/null");
-    // spawn + 轮询 + 超时 kill：病态 rc 卡死时**终止** zsh，绝不泄漏线程/进程（修 P3）。
-    let mut child = Command::new("zsh")
-        .args(["-lic", &arg])
+    let (shell, args): (&str, Vec<&str>) = if which("zsh").is_some() {
+        ("zsh", vec!["-lic", &arg])
+    } else if which("bash").is_some() {
+        ("bash", vec!["-lc", &arg])
+    } else {
+        ("sh", vec!["-lc", &arg])
+    };
+    // spawn + 轮询 + 超时 kill：病态 rc 卡死时**终止** shell，绝不泄漏线程/进程（修 P3）。
+    let mut child = Command::new(shell)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

@@ -30,11 +30,21 @@ fn default_mode() -> String {
     "proxy".to_string()
 }
 
-/// 单个 provider 的配置。目前只有 key（明文存盘）。
+/// 单个 provider 的配置。key 明文存盘；custom provider 额外保存端点与模型。
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 pub struct ProviderCfg {
     #[serde(default)]
     pub key: String,
+    #[serde(default)]
+    pub api_url: String,
+    #[serde(default)]
+    pub api_format: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub max_tokens: u32,
 }
 
 /// 顶层配置。字段都有默认值，缺字段的旧文件也能读。
@@ -255,6 +265,7 @@ mod tests {
             "deepseek".into(),
             ProviderCfg {
                 key: "sk-abcdef1234".into(),
+                ..Default::default()
             },
         );
         save_to(&d, &cfg).unwrap();
@@ -358,6 +369,7 @@ mod tests {
                 "qwen".into(),
                 ProviderCfg {
                     key: "k-xyz".into(),
+                    ..Default::default()
                 },
             );
         })

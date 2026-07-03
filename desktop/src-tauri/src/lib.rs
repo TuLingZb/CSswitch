@@ -49,15 +49,49 @@ fn key_fingerprint(s: &str) -> u64 {
 fn key_env(provider: &str) -> &'static str {
     match provider {
         "qwen" => "DASHSCOPE_API_KEY",
+        "mimo" => "MIMO_API_KEY",
+        "minimax" => "MINIMAX_API_KEY",
+        "custom" => "CUSTOM_API_KEY",
         _ => "DEEPSEEK_API_KEY",
     }
 }
 
-fn upstream_host(provider: &str) -> &'static str {
+fn default_upstream_host(provider: &str) -> &'static str {
     match provider {
         "qwen" => "dashscope.aliyuncs.com",
+        "mimo" => "api.xiaomimimo.com",
+        "minimax" => "api.minimax.io",
         _ => "api.deepseek.com",
     }
+}
+
+fn host_from_url(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let host_port = rest.split('/').next().unwrap_or("").trim();
+    let host = host_port
+        .trim_start_matches('[')
+        .split(']')
+        .next()
+        .unwrap_or(host_port)
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+fn custom_cfg<'a>(cfg: &'a config::Config, provider: &str) -> Option<&'a config::ProviderCfg> {
+    cfg.providers.get(provider)
+}
+
+fn science_bin() -> PathBuf {
+    std::env::var_os("SCIENCE_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(SCIENCE_BIN))
 }
 
 // ---------- 路径与日志 ----------
@@ -177,16 +211,47 @@ fn lock(m: &Mutex<AppState>) -> std::sync::MutexGuard<'_, AppState> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// 用系统浏览器打开 URL（macOS `open`）。校验退出码：非零视为失败（P2c）。
+/// 用系统浏览器打开 URL。校验退出码：非零视为失败（P2c）。
 fn open_in_browser(url: &str) -> Result<(), String> {
-    let st = Command::new("open")
-        .arg(url)
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "cmd"
+    } else {
+        "xdg-open"
+    };
+    let mut cmd = Command::new(opener);
+    if cfg!(target_os = "windows") {
+        cmd.arg("/C").arg("start").arg("").arg(url);
+    } else {
+        cmd.arg(url);
+    }
+    let st = cmd
         .status()
         .map_err(|e| format!("打开浏览器失败：{e}"))?;
     if !st.success() {
-        return Err(format!("open 非零退出（{:?}）", st.code()));
+        return Err(format!("{opener} 非零退出（{:?}）", st.code()));
     }
     Ok(())
+}
+
+fn open_path(path: &Path) -> Result<(), String> {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let st = Command::new(opener)
+        .arg(path)
+        .status()
+        .map_err(|e| format!("打开失败：{e}"))?;
+    if st.success() {
+        Ok(())
+    } else {
+        Err(format!("{opener} 非零退出（{:?}）", st.code()))
+    }
 }
 
 // ---------- 代理生命周期核心 ----------
@@ -221,7 +286,22 @@ fn ensure_proxy(
     let key = cfg
         .key_for(&provider)
         .ok_or_else(|| format!("缺少 {provider} 的 API key，请先在面板填写并保存。"))?;
-    let key_fp = key_fingerprint(&key);
+    let custom = custom_cfg(&cfg, &provider).cloned().unwrap_or_default();
+    let custom_format = if custom.api_format.is_empty() {
+        "openai".to_string()
+    } else {
+        custom.api_format.clone()
+    };
+    let custom_display = if custom.display_name.is_empty() {
+        custom.model.clone()
+    } else {
+        custom.display_name.clone()
+    };
+    let fp_material = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        key, custom.api_url, custom_format, custom.model, custom_display, custom.max_tokens
+    );
+    let key_fp = key_fingerprint(&fp_material);
     let port = cfg.proxy_port;
     let root = asset_root(app)
         .ok_or("找不到代理脚本 proxy/csswitch_proxy.py（打包资源或仓库根均未命中）。开发态可设 CSSWITCH_REPO。")?;
@@ -275,6 +355,22 @@ fn ensure_proxy(
             .arg(port.to_string())
             .arg("--auth-token")
             .arg(&secret)
+            .args(if provider == "custom" {
+                vec![
+                    "--custom-url".to_string(),
+                    custom.api_url.clone(),
+                    "--custom-mode".to_string(),
+                    custom_format.clone(),
+                    "--custom-model".to_string(),
+                    custom.model.clone(),
+                    "--custom-display".to_string(),
+                    custom_display.clone(),
+                    "--custom-max-tokens".to_string(),
+                    custom.max_tokens.max(1).to_string(),
+                ]
+            } else {
+                Vec::new()
+            })
             // key 经环境变量注入，绝不作为命令行参数（避免 ps 泄露）。
             .env(key_env(&provider), &key)
             .stdout(Stdio::from(logf))
@@ -323,7 +419,7 @@ fn stop_sandbox_inner(app: &tauri::AppHandle, st: &mut AppState) -> Result<(), S
         Some(root) => {
             let stop = root.join("scripts/stop-science-sandbox.sh");
             if stop.is_file() {
-                match Command::new("zsh") // stop 脚本是 #!/bin/zsh（用了 ${VAR:A} realpath）
+                match Command::new("bash")
                     .arg(&stop)
                     // 与 launch 时一致的可写沙箱 HOME，stop 才能按同一 data-dir 停对进程。
                     .env("SANDBOX_HOME", sandbox_home())
@@ -363,16 +459,34 @@ fn get_config() -> Result<serde_json::Value, String> {
     let dir = config::default_dir();
     let cfg = config::load_from(&dir).map_err(|e| e.to_string())?;
     let mut keys = serde_json::Map::new();
-    for p in ["deepseek", "qwen"] {
+    for p in ["deepseek", "qwen", "mimo", "minimax", "custom"] {
         let masked = cfg.key_for(p).map(|k| config::mask(&k)).unwrap_or_default();
         keys.insert(p.to_string(), serde_json::Value::String(masked));
     }
+    let custom = cfg.providers.get("custom").cloned().unwrap_or_default();
+    let custom_api_format = if custom.api_format.is_empty() {
+        "openai".to_string()
+    } else {
+        custom.api_format.clone()
+    };
+    let custom_max_tokens = if custom.max_tokens == 0 {
+        8192
+    } else {
+        custom.max_tokens
+    };
     Ok(json!({
         "provider": cfg.provider,
         "proxy_port": cfg.proxy_port,
         "sandbox_port": cfg.sandbox_port,
         "mode": cfg.mode,
         "keys": keys,
+        "custom": {
+            "api_url": custom.api_url,
+            "api_format": custom_api_format,
+            "model": custom.model,
+            "display_name": custom.display_name,
+            "max_tokens": custom_max_tokens,
+        },
     }))
 }
 
@@ -424,6 +538,9 @@ fn set_mode(
 /// 官方端点，不经本代理）。CSSwitch 只把用户交回官方客户端，不托管其登录。
 #[tauri::command]
 fn open_official() -> Result<(), String> {
+    if !cfg!(target_os = "macos") {
+        return Err("官方 Claude Science 桌面客户端当前主要支持 macOS；Linux 下请使用第三方代理/沙箱能力，或通过 SCIENCE_BIN 指向可用的 Science 二进制。".into());
+    }
     let app_path = "/Applications/Claude Science.app";
     let mut cmd = Command::new("open");
     if Path::new(app_path).is_dir() {
@@ -448,6 +565,11 @@ struct UiSettings {
     provider: String,
     proxy_port: u16,
     sandbox_port: u16,
+    custom_api_url: Option<String>,
+    custom_api_format: Option<String>,
+    custom_model: Option<String>,
+    custom_display_name: Option<String>,
+    custom_max_tokens: Option<u32>,
 }
 
 #[tauri::command]
@@ -457,11 +579,28 @@ fn set_config(cfg: UiSettings) -> Result<(), String> {
         return Err("端口 8765 是真实 Science 实例保留端口，不能用。".into());
     }
     // 只认已实现的 provider，避免存进未知值后起代理时才失败（修 P2-3）。
-    if cfg.provider != "deepseek" && cfg.provider != "qwen" {
+    if !["deepseek", "qwen", "mimo", "minimax", "custom"].contains(&cfg.provider.as_str()) {
         return Err(format!(
-            "未知 provider：{}（只支持 deepseek / qwen）。",
+            "未知 provider：{}。",
             cfg.provider
         ));
+    }
+    let custom_url = cfg.custom_api_url.unwrap_or_default().trim().to_string();
+    let custom_format = cfg
+        .custom_api_format
+        .unwrap_or_else(|| "openai".into())
+        .trim()
+        .to_lowercase();
+    let custom_model = cfg.custom_model.unwrap_or_default().trim().to_string();
+    let custom_display = cfg.custom_display_name.unwrap_or_default().trim().to_string();
+    let custom_max = cfg.custom_max_tokens.unwrap_or(8192).max(1);
+    if cfg.provider == "custom" {
+        if custom_url.is_empty() || custom_model.is_empty() {
+            return Err("自定义 provider 需要填写 API URL 和模型名。".into());
+        }
+        if custom_format != "openai" && custom_format != "anthropic" {
+            return Err("自定义 API 格式只支持 openai / anthropic。".into());
+        }
     }
     // 端口 0 非法（无法监听/探活）。
     if cfg.proxy_port == 0 || cfg.sandbox_port == 0 {
@@ -476,6 +615,16 @@ fn set_config(cfg: UiSettings) -> Result<(), String> {
         c.provider = cfg.provider;
         c.proxy_port = cfg.proxy_port;
         c.sandbox_port = cfg.sandbox_port;
+        let custom = c.providers.entry("custom".into()).or_default();
+        custom.api_url = custom_url;
+        custom.api_format = if custom_format.is_empty() {
+            "openai".into()
+        } else {
+            custom_format
+        };
+        custom.model = custom_model;
+        custom.display_name = custom_display;
+        custom.max_tokens = custom_max;
     })
     .map(|_| ())
     .map_err(|e| e.to_string())
@@ -620,7 +769,7 @@ fn one_click_login(
         );
     }
     let logf2 = logf.try_clone().map_err(|e| e.to_string())?;
-    let status = Command::new("zsh") // launch 脚本是 #!/bin/zsh（用了 ${VAR:A} realpath）
+    let status = Command::new("bash")
         .arg(&launch)
         .arg("--port")
         .arg(sport.to_string())
@@ -713,8 +862,9 @@ fn first_http_url(stdout: &str) -> Option<String> {
 fn sandbox_url(port: u16) -> String {
     let home = sandbox_home();
     let data_dir = home.join(".claude-science");
-    if Path::new(SCIENCE_BIN).is_file() {
-        if let Ok(out) = Command::new(SCIENCE_BIN)
+    let bin = science_bin();
+    if bin.is_file() {
+        if let Ok(out) = Command::new(&bin)
             .arg("url")
             .arg("--data-dir")
             .arg(&data_dir)
@@ -738,8 +888,9 @@ fn sandbox_url(port: u16) -> String {
 fn sandbox_running_ours(port: u16) -> bool {
     let home = sandbox_home();
     let data_dir = home.join(".claude-science");
-    if Path::new(SCIENCE_BIN).is_file() {
-        match Command::new(SCIENCE_BIN)
+    let bin = science_bin();
+    if bin.is_file() {
+        match Command::new(&bin)
             .arg("status")
             .arg("--data-dir")
             .arg(&data_dir)
@@ -762,7 +913,7 @@ fn sandbox_running_ours(port: u16) -> bool {
 #[tauri::command]
 fn status(state: State<'_, Mutex<AppState>>) -> serde_json::Value {
     // 只在锁内取值，锁外做阻塞探活。
-    let (pport, secret, sport, provider) = {
+    let (pport, secret, sport, upstream_host) = {
         let st = lock(&state);
         let cfg = config::load_from(&config::default_dir()).unwrap_or_default();
         let pport = if st.proxy_port != 0 {
@@ -775,7 +926,15 @@ fn status(state: State<'_, Mutex<AppState>>) -> serde_json::Value {
         } else {
             cfg.sandbox_port
         };
-        (pport, st.secret.clone(), sport, cfg.provider)
+        let upstream_host = if cfg.provider == "custom" {
+            cfg.providers
+                .get("custom")
+                .and_then(|p| host_from_url(&p.api_url))
+                .unwrap_or_else(|| default_upstream_host(&cfg.provider).to_string())
+        } else {
+            default_upstream_host(&cfg.provider).to_string()
+        };
+        (pport, st.secret.clone(), sport, upstream_host)
     };
     let proxy = if !secret.is_empty() && proc::http_health(pport, Some(&secret), 300) {
         "green"
@@ -789,7 +948,7 @@ fn status(state: State<'_, Mutex<AppState>>) -> serde_json::Value {
     } else {
         "amber"
     };
-    let upstream = if proc::tcp_reachable(upstream_host(&provider), 443, 500) {
+    let upstream = if proc::tcp_reachable(&upstream_host, 443, 500) {
         "green"
     } else {
         "amber"
@@ -837,13 +996,13 @@ fn app_version() -> String {
 /// 打开 GitHub Releases 页（检查更新时用系统浏览器打开，浏览器走用户自己的代理）。
 #[tauri::command]
 fn open_release_page() -> Result<(), String> {
-    open_in_browser("https://github.com/SuperJJ007/CSswitch/releases/latest")
+    open_in_browser("https://github.com/TuLingZb/CSswitch/releases/latest")
 }
 
 /// 打开「报 bug」页（预填 bug 模板）；用系统浏览器，走用户自己的代理。
 #[tauri::command]
 fn report_bug() -> Result<(), String> {
-    open_in_browser("https://github.com/SuperJJ007/CSswitch/issues/new?template=bug_report.yml")
+    open_in_browser("https://github.com/TuLingZb/CSswitch/issues/new?template=bug_report.yml")
 }
 
 /// 在访达里打开日志目录 `~/.csswitch/logs`，方便用户附到 bug 反馈里（先自查有无密钥）。
@@ -851,11 +1010,7 @@ fn report_bug() -> Result<(), String> {
 fn open_logs() -> Result<(), String> {
     let dir = config::default_dir().join("logs");
     let _ = std::fs::create_dir_all(&dir);
-    Command::new("open")
-        .arg(&dir)
-        .status()
-        .map_err(|e| format!("打开日志目录失败：{e}"))?;
-    Ok(())
+    open_path(&dir).map_err(|e| format!("打开日志目录失败：{e}"))
 }
 
 #[tauri::command]
