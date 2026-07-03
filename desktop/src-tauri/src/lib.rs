@@ -226,9 +226,7 @@ fn open_in_browser(url: &str) -> Result<(), String> {
     } else {
         cmd.arg(url);
     }
-    let st = cmd
-        .status()
-        .map_err(|e| format!("打开浏览器失败：{e}"))?;
+    let st = cmd.status().map_err(|e| format!("打开浏览器失败：{e}"))?;
     if !st.success() {
         return Err(format!("{opener} 非零退出（{:?}）", st.code()));
     }
@@ -580,10 +578,7 @@ fn set_config(cfg: UiSettings) -> Result<(), String> {
     }
     // 只认已实现的 provider，避免存进未知值后起代理时才失败（修 P2-3）。
     if !["deepseek", "qwen", "mimo", "minimax", "custom"].contains(&cfg.provider.as_str()) {
-        return Err(format!(
-            "未知 provider：{}。",
-            cfg.provider
-        ));
+        return Err(format!("未知 provider：{}。", cfg.provider));
     }
     let custom_url = cfg.custom_api_url.unwrap_or_default().trim().to_string();
     let custom_format = cfg
@@ -592,7 +587,11 @@ fn set_config(cfg: UiSettings) -> Result<(), String> {
         .trim()
         .to_lowercase();
     let custom_model = cfg.custom_model.unwrap_or_default().trim().to_string();
-    let custom_display = cfg.custom_display_name.unwrap_or_default().trim().to_string();
+    let custom_display = cfg
+        .custom_display_name
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let custom_max = cfg.custom_max_tokens.unwrap_or(8192).max(1);
     if cfg.provider == "custom" {
         if custom_url.is_empty() || custom_model.is_empty() {
